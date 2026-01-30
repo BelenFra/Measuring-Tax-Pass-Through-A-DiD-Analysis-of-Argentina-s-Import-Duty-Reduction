@@ -1,7 +1,8 @@
 
-## ANALISIS DEL IMPACTO EN PRECIOS DE ALIMENTOS Y BEBIDAS IMPORTADAS LUEGO DE LA REDUCCION 
-## DEL IMPUESTO PAIS 
+## ANALYSIS OF THE IMPACT ON IMPORTED FOOD AND BEVERAGE PRICES 
+## FOLLOWING THE REDUCTION OF THE "IMPUESTO PAIS"
 
+# Load necessary libraries
 
 library(dplyr)
 library(tidyverse)
@@ -16,56 +17,58 @@ library(miscTools)
 library(sandwich)
 library(car)
 
+# Load data
 df <- read_csv("df_clean.csv",show_col_types = FALSE)
 sapply(df, class)
 summary(df)
 
-#Elimino las categorias que violan el principio de paralelismo
+# Exclude categories that violate the Parallel Trends Assumption
 df_excl <- df %>% filter(!categoria_producto %in% c("Galletitas", "Enlatados"))
 
-# Crear panel para análisis FE
+# Create panel data object for Fixed Effects (FE) analysis
 df_panel <- pdata.frame(df_excl, index = c("prod", "time"))
 
-##------------------------------------  Chequeos  ------------------------------------ 
+##------------------------------------  Diagnostics  ------------------------------------ 
 
-    model_temp <- lm(price_variation_c ~ post + imported + timeToTreat + dolar_variation + stock_dummy + max_consecutivos_sin_stock , data = df_excl)
+# Multicollinearity check (VIF)    
+model_temp <- lm(price_variation_c ~ post + imported + timeToTreat + dolar_variation + stock_dummy + max_consecutivos_sin_stock , data = df_excl)
     vif(model_temp)
 
 ##------------------------------------  Modelos  ------------------------------------  
 
-## Modelo Básico 
+# Basic Model (Two-Way Fixed Effects)
 
     did_log_precio <- plm(log_precio ~ post + imported + post*imported, data = df_panel, model = "within", effect = "twoways")
     did_price_variation <- plm(price_variation_c ~ post + imported + post*imported, data = df_panel, model = "within", effect = "twoways")
-    ## Errores robustos
+    ## Robust Standard Errors
     robust_se_log_precio <- coeftest(did_log_precio, vcov. = vcovHC, type = "HC1")
     robust_se_price_variation <- coeftest(did_price_variation, vcov. = vcovHC, type = "HC1")
 
-## Modelo Básico + Variables de control Control
+## Basic Model + Control Variables
     
     did_log_precio3 <- plm(log_precio ~ post + imported + post*imported +  stock_dummy + max_consecutivos_sin_stock , data = df_panel, model = "within", effect = "twoways")
     did_price_variation3 <- plm(price_variation_c ~ post + imported + post*imported + stock_dummy + max_consecutivos_sin_stock , data = df_panel, model = "within", effect = "twoways")
     
-    ## Errores robustos
+    ## Robust Standard Errors
     robust_se_log_precio3 <- coeftest(did_log_precio3, vcov. = vcovHC, type = "HC1")
     robust_se_price_variation3 <- coeftest(did_price_variation3, vcov. = vcovHC, type = "HC1")
     
-## Tabla con stargazer usando SE robustos
+## Summary Table using stargazer with Robust SEs
     stargazer(did_log_precio, did_price_variation, did_log_precio3, did_price_variation3,
               type = "text",
               se = list(sqrt(diag(vcovHC(did_log_precio, type = "HC1"))),
                         sqrt(diag(vcovHC(did_price_variation, type = "HC1"))),
                         sqrt(diag(vcovHC(did_log_precio3, type = "HC1"))),
                         sqrt(diag(vcovHC(did_price_variation3, type = "HC1")))),
-              title = "Modelos DiD: Impacto de la Reducción del Impuesto PAIS",
-              add.lines = list(c("Efectos Fijos", "Prod, Time", "Prod, Time", "Prod, Time", "Prod, Time"),
-                               c("Errores Robustos", "HC1 (cluster: prod)", "HC1 (cluster: prod)", "HC1 (cluster: prod)", "HC1 (cluster: prod)")))   
+              title = "DiD Models: Impacto of Impuesto PAIS tax reduction",
+              add.lines = list(c("Fixed Effects", "Prod, Time", "Prod, Time", "Prod, Time", "Prod, Time"),
+                               c("Robust Errors", "HC1 (cluster: prod)", "HC1 (cluster: prod)", "HC1 (cluster: prod)", "HC1 (cluster: prod)")))   
 
 
-##------------------------------------  Robustez  ------------------------------------ 
+##------------------------------------  Robustness Tests  ------------------------------------ 
 
 
-## Placebo test con Fecha de evento falsa 20/09/2024
+## Placebo Test: Fake Event Date (09/20/2024)
     
     df_placebo <- df_excl %>% filter(timeToTreat < 0)
     df_placebo$post_falso <- as.numeric(df_placebo$timeToTreat >= -1)
@@ -74,9 +77,9 @@ df_panel <- pdata.frame(df_excl, index = c("prod", "time"))
                           data = df_placebo)
     placebo_log_ols <- lm(log_precio ~ post_falso + imported + post_falso*imported + stock_dummy + max_consecutivos_sin_stock, 
                           data = df_placebo)
-    stargazer(placebo_var_ols, placebo_log_ols, type = "text", title = "Placebo Test OLS (Fecha Falsa: 20/09/2024)")
+    stargazer(placebo_var_ols, placebo_log_ols, type = "text", title = "Placebo Test OLS (Fake Date: 09/20/2024)")
     
-## Placebo test con grupo de tratamiento falso
+## Placebo Test: Fake Treatment Group
     
     df_control <- df_excl %>% 
     filter(imported == 0 )
@@ -92,9 +95,9 @@ df_panel <- pdata.frame(df_excl, index = c("prod", "time"))
     
     placebo_log <- plm(log_precio ~ post  + falso_importado*post  + dolar_variation + stock_dummy + max_consecutivos_sin_stock , data = df_panel_control, model = "within", effect = "twoways")
     stargazer(placebo_var, placebo_log, type = "text", 
-              title = "Placebo Test en Grupo Control (No Importados, Sin Filtrado por Fecha)")
+              title = "Control Group Placebo Test (National Products Only)")
     
-## Regresión por categoía de producto
+## Regressions by Product Category (Heterogeneity Analysis)
     
     categories <- unique(df_excl$categoria_producto)
     
@@ -109,7 +112,7 @@ df_panel <- pdata.frame(df_excl, index = c("prod", "time"))
       }
     
     
-    # Visualizar coeficientes de post:imported
+    # Visualize post:imported coefficients
     coefs_var <- sapply(models_var, function(m) coef(m)["post:imported"])
     se_var <- sapply(models_var, function(m) summary(m)$coefficients["post:imported", "Std. Error"])
     df_coefs <- data.frame(category = names(coefs_var), estimate = coefs_var, se = se_var)
@@ -117,17 +120,18 @@ df_panel <- pdata.frame(df_excl, index = c("prod", "time"))
     ggplot(df_coefs, aes(x = category, y = estimate)) + 
       geom_point() + geom_errorbar(aes(ymin = estimate - 1.96*se, ymax = estimate + 1.96*se)) +
       geom_hline(yintercept = 0, linetype = "dashed") + 
-      theme_minimal() + ggtitle("Coeficientes post:imported por Categoría - price_variation_c") + 
+      theme_minimal() + ggtitle("post:imported Coefficients by Category - price_variation_c") + 
       coord_flip()
-    # Repite para otros outcomes
     
-    # Extraer coeficientes, errores estándar, p-valores, R² ajustado, observaciones
+    
+    # Extract coefficients, SEs, p-values, Adj. R-squared, and Observations into a summary table
     results_table <- lapply(names(models_var), function(cat) {
       model <- models_var[[cat]]
       coef <- coef(model)["post:imported"]
       se <- summary(model)$coefficients["post:imported", "Std. Error"]
       pval <- summary(model)$coefficients["post:imported", "Pr(>|t|)"]
-      # Corrección Bonferroni
+        
+      # Bonferroni correction for multiple comparisons
       pval_adj <- pval * length(models_var)
       stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**", ifelse(pval < 0.1, "*", "")))
       obs <- nobs(model)
@@ -143,9 +147,10 @@ df_panel <- pdata.frame(df_excl, index = c("prod", "time"))
       )
     }) %>% bind_rows()
     
-    # Ordenar por magnitud del coeficiente
+    # Sort by coefficient magnitude
     results_table <- results_table %>% arrange(desc(abs(Coefficient)))
     
     
     
+
     
